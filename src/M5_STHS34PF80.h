@@ -6,8 +6,11 @@
 #ifndef __M5UnitTMOS_H__
 #define __M5UnitTMOS_H__
 
-#include <Wire.h>
-#include "sths34pf80_api/sths34pf80_reg.h"
+#include "driver/i2c.h"
+#include "../../i2c_bus.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "sths34pf80_reg.h"
 
 // define a standard i2c address (7 bit) macro
 #define STHS34PF80_I2C_ADDRESS (STHS34PF80_I2C_ADD >> 1)
@@ -19,7 +22,7 @@ const static uint16_t kChunkSize = kMaxTransferBuffer;
 
 class M5_STHS34PF80 {
    private:
-    TwoWire *_wire;
+    i2c_port_t _i2c_port;
     uint8_t _addr;
     uint8_t _scl;
     uint8_t _sda;
@@ -30,20 +33,23 @@ class M5_STHS34PF80 {
     int readRegisterRegion(uint8_t addr, uint8_t reg, uint8_t *data, uint16_t numBytes);
 
     static int32_t read(void *, uint8_t, uint8_t *, uint16_t);
+    // static esp_err_t read(void *device, uint8_t addr, uint8_t *data, uint16_t numData);
     static int32_t write(void *, uint8_t, const uint8_t *, uint16_t);
+    // static esp_err_t write(void *device, uint8_t addr, const uint8_t *data, uint16_t numData);
+
     static void delayMS(uint32_t millisec);
 
    public:
     /**
      * @brief
      *
-     * @param wire I2C Port
+     * @param i2c_port I2C Port
      * @param addr addr device i2c addr
      * @param sda sda sda pin number
      * @param scl scl scl pin number
      * @return bool true=success / false=fail
      */
-    bool begin(TwoWire *wire = &Wire, uint8_t addr = STHS34PF80_I2C_ADDRESS, uint8_t sda = 21, uint8_t scl = 22);
+    i2c_bus_device_handle_t begin(i2c_bus_handle_t bus_handle);
 
     /**
      * @brief This function begins the examples/communication and sets

@@ -5,130 +5,147 @@
  */
 #include "M5_STHS34PF80.h"
 
-bool M5_STHS34PF80::begin(TwoWire *wire, uint8_t addr, uint8_t sda, uint8_t scl) {
-    if (!_wire) {
-        _wire = wire;
-        _addr = addr;
-        _sda  = sda;
-        _scl  = scl;
-        _wire->begin(_sda, _scl);
+i2c_bus_device_handle_t M5_STHS34PF80::begin(i2c_bus_handle_t bus_handle) {
+    i2c_bus_device_handle_t tmos_dev = i2c_bus_device_create(bus_handle, STHS34PF80_I2C_ADDRESS, 400000);
+    if (tmos_dev == NULL) {
+        printf("tmos_dev create failed\n");
+    } else {
+        // sensor.read_reg  = (stmdev_read_ptr)M5_STHS34PF80::read;
+        // sensor.write_reg = (stmdev_write_ptr)M5_STHS34PF80::write;
+        sensor.read_reg  = M5_STHS34PF80::read;
+        sensor.write_reg = M5_STHS34PF80::write;
+        sensor.mdelay    = M5_STHS34PF80::delayMS;
+        sensor.handle    = this;
+        _addr            = STHS34PF80_I2C_ADDRESS;
+        printf("tmos_dev create success\n");
+        if (init() != 0) {
+            printf("TMOS init failed\n");
+        } else {
+            printf("TMOS init success\n");
+        }
     }
-    sensor.read_reg  = M5_STHS34PF80::read;
-    sensor.write_reg = M5_STHS34PF80::write;
-    sensor.mdelay    = M5_STHS34PF80::delayMS;
-    sensor.handle    = this;
-    _addr            = addr;
+    return tmos_dev;
+}
 
-    // call super class begin -- it returns 0 on no error
-    return M5_STHS34PF80::init() == 0;
+bool M5_STHS34PF80::ping(uint8_t address) {
+    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+    i2c_master_start(cmd);
+    i2c_master_write_byte(cmd, (address << 1) | I2C_MASTER_WRITE, true);
+    i2c_master_stop(cmd);
+    esp_err_t ret = i2c_master_cmd_begin(_i2c_port, cmd, 1000 / portTICK_PERIOD_MS);
+    i2c_cmd_link_delete(cmd);
+
+    return ret == ESP_OK;
+}
+
+int M5_STHS34PF80::writeRegisterRegion(uint8_t address, uint8_t offset, const uint8_t *data, uint16_t length) {
+    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+    i2c_master_start(cmd);
+    i2c_master_write_byte(cmd, (address << 1) | I2C_MASTER_WRITE, true);
+    i2c_master_write_byte(cmd, offset, true);
+    i2c_master_write(cmd, data, length, true);
+    i2c_master_stop(cmd);
+    esp_err_t ret = i2c_master_cmd_begin(_i2c_port, cmd, 1000 / portTICK_PERIOD_MS);
+    i2c_cmd_link_delete(cmd);
+
+    return ret == ESP_OK ? 0 : -1;
+}
+
+int M5_STHS34PF80::writeRegisterRegion(uint8_t address, uint8_t offset, uint8_t data, uint16_t length) {
+    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+    i2c_master_start(cmd);
+    i2c_master_write_byte(cmd, (address << 1) | I2C_MASTER_WRITE, true);
+    i2c_master_write_byte(cmd, offset, true);
+    i2c_master_write(cmd, &data, 1, true);
+    i2c_master_stop(cmd);
+    esp_err_t ret = i2c_master_cmd_begin(_i2c_port, cmd, 1000 / portTICK_PERIOD_MS);
+    i2c_cmd_link_delete(cmd);
+
+    return ret == ESP_OK ? 0 : -1;
+}
+
+int M5_STHS34PF80::readRegisterRegion(uint8_t address, uint8_t reg, uint8_t *data, uint16_t numBytes) {
+    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+    i2c_master_start(cmd);
+    i2c_master_write_byte(cmd, (address << 1) | I2C_MASTER_WRITE, true);
+    i2c_master_write_byte(cmd, reg, true);
+    // i2c_master_stop(cmd);   // Stop writing
+    i2c_master_start(cmd);  // Start reading
+    i2c_master_write_byte(cmd, (address << 1) | I2C_MASTER_READ, true);
+
+    esp_err_t ret;
+    if (numBytes > 1) {
+        ret = i2c_master_read(cmd, data, numBytes - 1, I2C_MASTER_ACK);
+        if (ret != ESP_OK) {
+            i2c_cmd_link_delete(cmd);
+            return -1;
+        }
+    }
+    ret = i2c_master_read_byte(cmd, data + numBytes - 1, I2C_MASTER_NACK);
+    if (ret != ESP_OK) {
+        i2c_cmd_link_delete(cmd);
+        return -1;
+    }
+
+    i2c_master_stop(cmd);
+    ret = i2c_master_cmd_begin(_i2c_port, cmd, 1000 / portTICK_PERIOD_MS);
+    i2c_cmd_link_delete(cmd);
+
+    return ret == ESP_OK ? 0 : -1;
 }
 
 int32_t M5_STHS34PF80::read(void *device, uint8_t addr, uint8_t *data, uint16_t numData) {
     return ((M5_STHS34PF80 *)device)->readRegisterRegion(((M5_STHS34PF80 *)device)->_addr, addr, data, numData);
 }
 
+// esp_err_t M5_STHS34PF80::read(void *device, uint8_t addr, uint8_t *data, uint16_t numData) {
+//     return i2c_bus_read_bytes((i2c_bus_device_handle_t)device, addr, numData, data);
+// }
+
 int32_t M5_STHS34PF80::write(void *device, uint8_t addr, const uint8_t *data, uint16_t numData) {
     return ((M5_STHS34PF80 *)device)->writeRegisterRegion(((M5_STHS34PF80 *)device)->_addr, addr, data, numData);
 }
 
+// esp_err_t M5_STHS34PF80::write(void *device, uint8_t addr, const uint8_t *data, uint16_t numData) {
+//     return i2c_bus_write_bytes((i2c_bus_device_handle_t)device, addr, numData, data);
+// }
+
 void M5_STHS34PF80::delayMS(uint32_t millisec) {
-    delay(millisec);
-}
-
-bool M5_STHS34PF80::ping(uint8_t i2c_address) {
-    if (!_wire) return false;
-
-    _wire->beginTransmission(i2c_address);
-    return _wire->endTransmission() == 0;
-}
-
-int M5_STHS34PF80::writeRegisterRegion(uint8_t i2c_address, uint8_t offset, const uint8_t *data, uint16_t length) {
-    _wire->beginTransmission(i2c_address);
-    _wire->write(offset);
-    _wire->write(data, (int)length);
-
-    return _wire->endTransmission() ? -1 : 0;  // -1 = error, 0 = success
-}
-
-int M5_STHS34PF80::writeRegisterRegion(uint8_t i2c_address, uint8_t offset, uint8_t data, uint16_t length) {
-    _wire->beginTransmission(i2c_address);
-    _wire->write(offset);
-    _wire->write(data);
-
-    return _wire->endTransmission() ? -1 : 0;  // -1 = error, 0 = success
-}
-
-int M5_STHS34PF80::readRegisterRegion(uint8_t addr, uint8_t reg, uint8_t *data, uint16_t numBytes) {
-    uint8_t nChunk;
-    uint16_t nReturned;
-
-    if (!_wire) return -1;
-
-    int i;                    // counter in loop
-    bool bFirstInter = true;  // Flag for first iteration - used to send register
-
-    while (numBytes > 0) {
-        _wire->beginTransmission(addr);
-
-        if (bFirstInter) {
-            _wire->write(reg);
-            bFirstInter = false;
-        }
-
-        if (_wire->endTransmission() != 0) return -1;  // error with the end transmission
-
-        // We're chunking in data - keeping the max chunk to kMaxI2CBufferLength
-        nChunk = numBytes > kChunkSize ? kChunkSize : numBytes;
-
-        nReturned = _wire->requestFrom((int)addr, (int)nChunk, (int)true);
-
-        // No data returned, no dice
-        if (nReturned == 0) return -1;  // error
-
-        // Copy the retrieved data chunk to the current index in the data segment
-        for (i = 0; i < nReturned; i++) {
-            *data++ = _wire->read();
-        }
-
-        // Decrement the amount of data recieved from the overall data request
-        // amount
-        numBytes = numBytes - nReturned;
-
-    }  // end while
-
-    return 0;  // Success
+    vTaskDelay(millisec / portTICK_PERIOD_MS);
 }
 
 int32_t M5_STHS34PF80::init() {
+    printf("init\n");
     if (isConnected() != 0) {
         return -1;
+        printf("isConnected\n");
     }
 
-    reset();  // Set boot bit to 1, delay, then reset algorithm
+    // reset();  // Set boot bit to 1, delay, then reset algorithm
+    // printf("reset\n");
+    // // Set temperature object number set average (AVG_TMOS = 32)
+    // int32_t avgErr = setAverageTObjectNumber(STHS34PF80_AVG_TMOS_32);
 
-    // Set temperature object number set average (AVG_TMOS = 32)
-    int32_t avgErr = setAverageTObjectNumber(STHS34PF80_AVG_TMOS_32);
+    // // Set ambient temperature average (AVG_TAMB = 8)
+    // int32_t tAmbErr = setAverageTAmbientNumber(STHS34PF80_AVG_T_8);
 
-    // Set ambient temperature average (AVG_TAMB = 8)
-    int32_t tAmbErr = setAverageTAmbientNumber(STHS34PF80_AVG_T_8);
+    // // Set block data rate update to true
+    // int32_t blockErr = setBlockDataUpdate(true);
 
-    // Set block data rate update to true
-    int32_t blockErr = setBlockDataUpdate(true);
+    // // Set the data rate (ODR) to 1Hz
+    // int32_t odrErr = setTmosODR(STHS34PF80_TMOS_ODR_AT_1Hz);
 
-    // Set the data rate (ODR) to 1Hz
-    int32_t odrErr = setTmosODR(STHS34PF80_TMOS_ODR_AT_1Hz);
+    // if (avgErr != 0) {
+    //     return avgErr;
+    // } else if (tAmbErr != 0) {
+    //     return tAmbErr;
+    // } else if (blockErr != 0) {
+    //     return blockErr;
+    // } else if (odrErr != 0) {
+    //     return odrErr;
+    // }
 
-    if (avgErr != 0) {
-        return avgErr;
-    } else if (tAmbErr != 0) {
-        return tAmbErr;
-    } else if (blockErr != 0) {
-        return blockErr;
-    } else if (odrErr != 0) {
-        return odrErr;
-    }
-
-    // If no errors, return 0
+    // // If no errors, return 0
     return 0;
 }
 
